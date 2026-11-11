@@ -1,0 +1,24 @@
+# root-level copy guard (must not exist; dist/ is the tracked artifact)
+/bfs.iitc.misaka.user.js
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# node
+node_modules/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# scratch
+tmp/
+
+# logs / env
+*.log
+.env

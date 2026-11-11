@@ -1,0 +1,23 @@
+# 文件树索引
+
+- agents/
+  - index.md 本索引
+  - knowledges/index.md 知识库索引
+  - knowledges/20261111/vendored-exceptions.md 第三方/ES5 例外说明
+  - knowledges/20261111/build-and-release.md 构建与发布注意事项
+  - design/index.md 设计文档索引
+- .gitignore 忽略根目录同名产物与缓存
+- build.py 拼接 src 生成 dist
+- dist/bfs.iitc.misaka.user.js 构建产物，提交入库，勿手改
+- src/s2cell.js vendored S2 L16 单元几何
+- src/core.js 几何、建图、正反向 BFS 与推荐
+- src/ui.js IITC 面板、拉取与运行时校验
+- tools/drone_route.py Python CLI 备用规划
+- tools/requirements.txt CLI 依赖（s2sphere）
+- tools/iitc_export.js IITC 控制台导出脚本
+- tests/smoke.js S2 角点与 BFS 冒烟测试
+- tests/fixtures/test_area.json 双簇合成测试数据
+- tests/fixtures/test_portals.json 网格合成测试数据
+- README.md
+- AGENTS.md
+- tmp/20261111/task.md 本地任务记录（不入库）

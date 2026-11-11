@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.193935
+// @version        2026.11.11.194437
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -910,12 +910,11 @@ function wrapper(plugin_info) {
     for (var i = 0; i < mods.length; i++) {
       var m = mods[i];
       if (!m || !m.name) continue;
-      if (m.name.indexOf('Ito En Transmuter') === 0) {
-        var spin = (m.stats || {}).XM_SPIN;
-        if (spin === '-1') return 'ITO EN (-)';
-        if (spin === '1' || spin === '+1') return 'ITO EN (+)';
-        return 'ITO EN';
-      }
+      if (m.name.toLowerCase().indexOf('ito en') < 0) continue;
+      var spin = (m.stats || {}).XM_SPIN;
+      if (m.name.indexOf('(-)') >= 0 || spin === '-1') return 'ITO EN (-)';
+      if (m.name.indexOf('(+)') >= 0 || spin === '1' || spin === '+1') return 'ITO EN (+)';
+      return 'ITO EN';
     }
     return '';
   }

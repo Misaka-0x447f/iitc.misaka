@@ -495,12 +495,11 @@
     for (var i = 0; i < mods.length; i++) {
       var m = mods[i];
       if (!m || !m.name) continue;
-      if (m.name.indexOf('Ito En Transmuter') === 0) {
-        var spin = (m.stats || {}).XM_SPIN;
-        if (spin === '-1') return 'ITO EN (-)';
-        if (spin === '1' || spin === '+1') return 'ITO EN (+)';
-        return 'ITO EN';
-      }
+      if (m.name.toLowerCase().indexOf('ito en') < 0) continue;
+      var spin = (m.stats || {}).XM_SPIN;
+      if (m.name.indexOf('(-)') >= 0 || spin === '-1') return 'ITO EN (-)';
+      if (m.name.indexOf('(+)') >= 0 || spin === '1' || spin === '+1') return 'ITO EN (+)';
+      return 'ITO EN';
     }
     return '';
   }

@@ -815,8 +815,7 @@
     $('drone-l8-me').onclick = function () {
       var c = window.map.getCenter();
       state.meLat = c.lat; state.meLng = c.lng;
-      setStatus('已把地图中心设为你：' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5));
-      run();
+      setStatus('已把地图中心设为你：' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5) + '（点“分析”生效）');
     };
     $('drone-l8-clear').onclick = function () {
       clearLayers();

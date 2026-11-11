@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.163205
+// @version        2026.11.11.172630
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -1234,8 +1234,7 @@ function wrapper(plugin_info) {
     $('drone-l8-me').onclick = function () {
       var c = window.map.getCenter();
       state.meLat = c.lat; state.meLng = c.lng;
-      setStatus('已把地图中心设为你：' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5));
-      run();
+      setStatus('已把地图中心设为你：' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5) + '（点“分析”生效）');
     };
     $('drone-l8-clear').onclick = function () {
       clearLayers();

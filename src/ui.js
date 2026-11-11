@@ -27,7 +27,7 @@
   var TILE_RETRIES = 2;
   var RADIUS_STEPS_KM = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500, 600, 800, 1000];
   var MAX_RADIUS_KM = 1000;
-  var MAX_TILES_PER_STEP = 5000;
+  var MAX_FETCH_PER_RUN = 5000;
   var BOUNDARY_MARGIN_M = 150;
   var CACHE_PREFIX = 'bfs.iitc.misaka.cache.v1.';
   var DETAILS_PREFIX = 'bfs.iitc.misaka.details.v1.';
@@ -206,8 +206,8 @@
     });
   }
 
-  function fetchTiles(ids, onProgress) {
-    var stats = { expected: ids.length, cached: 0, requested: 0, retried: 0, failed: [] };
+  function fetchTiles(ids, onProgress, budget) {
+    var stats = { expected: ids.length, cached: 0, requested: 0, retried: 0, failed: [], budgetHit: false };
     var pending = [];
     for (var ii = 0; ii < ids.length; ii++) {
       var tid = ids[ii];
@@ -251,7 +251,10 @@
       return new Promise(function (resolve) {
         function step() {
           if (!pending.length) return resolve();
-          var chunk = pending.splice(0, TILE_CHUNK);
+          var room = budget ? budget.limit - budget.used : TILE_CHUNK;
+          if (room <= 0) { stats.budgetHit = true; return resolve(); }
+          var chunk = pending.splice(0, Math.min(TILE_CHUNK, room));
+          if (budget) budget.used += chunk.length;
           requestChunk(chunk, 0).then(function () {
             done += chunk.length;
             onProgress(done, total);
@@ -689,6 +692,7 @@
     if (!steps.length || steps[steps.length - 1] < maxKm) steps.push(maxKm);
     var idx = 0;
     var lastRadius = 0;
+    var runBudget = { limit: MAX_FETCH_PER_RUN, used: 0 };
     var fetchStats = { retried: 0, failed: [] };
 
     function mergeStats(a, b) {
@@ -703,7 +707,7 @@
       return r;
     }
 
-    function finish(stopKm, fetchKm, found, extraWarnings) {
+    function finish(stopKm, fetchKm, found, budgetHit) {
       var pack = allPortals();
       var portals = pack.portals;
       var res = analyzeWith(portals, center, me);
@@ -717,7 +721,10 @@
       }
       var unreachable = res.nearest.filter(function (r) { return r.hops < 0; }).length;
       if (unreachable) v.warnings.push(unreachable + ' 个最近 L8 不可达，可能受加载边界影响');
-      if (extraWarnings) v.warnings = v.warnings.concat(extraWarnings);
+      if (budgetHit) {
+        v.warnings = v.warnings.filter(function (w) { return w.indexOf('个瓦片未拉到') < 0; });
+        v.warnings.push('本次拉取达到 ' + MAX_FETCH_PER_RUN + ' 个新瓦片上限，半径 ' + stopKm + ' km 未拉完，覆盖不完整');
+      }
       v.ok = v.warnings.length === 0;
       PLUGIN.lastValidation = v;
 
@@ -745,27 +752,24 @@
     function fetchRadius(radiusKm, cb) {
       var ids = tilesForDisc(center.lat, center.lng, radiusKm * 1000);
       if (!ids || !window.postAjax) { cb(); return; }
-      if (ids.length > MAX_TILES_PER_STEP) { cb({ tooMany: ids.length }); return; }
       setStatus('拉取数据：半径 ' + radiusKm + ' km …');
       fetchTiles(ids, function (done, total) {
         if (total) setStatus('拉取数据：半径 ' + radiusKm + ' km，' + done + '/' + total + ' 个瓦片 …');
         updateCacheLabel();
-      }).then(function (stats) {
+      }, runBudget).then(function (stats) {
         mergeStats(fetchStats, stats);
-        cb();
+        cb(stats.budgetHit ? { budgetHit: true } : undefined);
       });
     }
 
     function attempt() {
       var radiusKm = Math.min(steps[idx], maxKm);
       fetchRadius(radiusKm, function (info) {
-        if (info && info.tooMany) {
+        if (info && info.budgetHit) {
           var packLimit = allPortals();
           var foundLimit = countQualifying(packLimit.portals, center, maxKm * 1000, state.titleFilter);
-          var stopAt = lastRadius || 1;
-          setStatus('半径 ' + radiusKm + ' km 需要 ' + info.tooMany + ' 个瓦片，超过单步上限 ' + MAX_TILES_PER_STEP + '，已停止扩张');
-          finish(stopAt, stopAt, foundLimit, ['半径 ' + radiusKm + ' km 需要 ' + info.tooMany +
-            ' 个瓦片，超过单步上限 ' + MAX_TILES_PER_STEP + '，搜索停在 ' + stopAt + ' km']);
+          setStatus('本次已拉取 ' + MAX_FETCH_PER_RUN + ' 个新瓦片，达到单次上限，已停止扩张');
+          finish(radiusKm, radiusKm, foundLimit, true);
           return;
         }
         lastRadius = radiusKm;

@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.172630
+// @version        2026.11.11.173658
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -773,7 +773,11 @@ function wrapper(plugin_info) {
     }
   }
 
-  function updateCacheLabel() {
+  var lastCacheLabelAt = 0;
+  function updateCacheLabel(force) {
+    var now = Date.now();
+    if (!force && now - lastCacheLabelAt < 500) return;
+    lastCacheLabelAt = now;
     var el = $('drone-l8-cache');
     if (!el) return;
     el.textContent = '缓存 ' + formatBytes(cacheSize()) + '（TTL 7 天）';
@@ -786,7 +790,7 @@ function wrapper(plugin_info) {
     }
     tileCache = Object.create(null);
     tileCount = 0;
-    updateCacheLabel();
+    updateCacheLabel(true);
   }
 
   function centerInfo() {
@@ -993,7 +997,7 @@ function wrapper(plugin_info) {
       var area = fetchKm > stopKm
         ? ('半径 ' + stopKm + ' km（外扩到 ' + fetchKm + ' km）')
         : ('半径 ' + stopKm + ' km');
-      updateCacheLabel();
+      updateCacheLabel(true);
       setStatus('完成：找到 ' + found + ' 个（上限 ' + state.count + '），' + area +
         '，' + portals.length + ' 个 portal，用时 ' + secs.toFixed(1) + ' s');
     }
@@ -1004,6 +1008,7 @@ function wrapper(plugin_info) {
       setStatus('拉取数据：半径 ' + radiusKm + ' km …');
       fetchTiles(ids, function (done, total) {
         if (total) setStatus('拉取数据：半径 ' + radiusKm + ' km，' + done + '/' + total + ' 个瓦片 …');
+        updateCacheLabel();
       }).then(function (stats) {
         mergeStats(fetchStats, stats);
         cb();
@@ -1244,7 +1249,7 @@ function wrapper(plugin_info) {
       clearPersistentCache();
       setStatus('持久缓存已清除');
     };
-    updateCacheLabel();
+    updateCacheLabel(true);
   }
 
   function hook() {

@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.193724
+// @version        2026.11.11.193935
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -998,6 +998,28 @@ function wrapper(plugin_info) {
     return t || (guid ? guid.substring(0, 8) : '');
   }
 
+  function nearestLoadedPortal(lat, lng) {
+    var best = null, bestDist = Infinity;
+    var portals = window.portals || {};
+    for (var g in portals) {
+      var p = portals[g];
+      var ll;
+      try { ll = IITC.portal.getLatLng ? IITC.portal.getLatLng(p) : p.getLatLng(); }
+      catch (e) { continue; }
+      var d = Core.hav(lat, lng, ll.lat, ll.lng);
+      if (d < bestDist) {
+        bestDist = d;
+        best = {
+          guid: g,
+          lat: ll.lat,
+          lng: ll.lng,
+          title: (p.options && p.options.data && p.options.data.title) || ''
+        };
+      }
+    }
+    return best;
+  }
+
   function centerLabel() {
     var el = $('drone-l8-center');
     if (!el) return;
@@ -1387,7 +1409,7 @@ function wrapper(plugin_info) {
       '</div>' +
       '<div class="drone-l8-row">' +
       '  <button id="drone-l8-run">无选中 portal</button>' +
-      '  <button id="drone-l8-me">我在地图中心</button>' +
+      '  <button id="drone-l8-me">从地图中心开始搜索</button>' +
       '  <button id="drone-l8-clear">清除</button>' +
       '</div>' +
       '<div class="drone-l8-row">' +
@@ -1438,8 +1460,16 @@ function wrapper(plugin_info) {
     };
     $('drone-l8-me').onclick = function () {
       var c = window.map.getCenter();
-      state.meLat = c.lat; state.meLng = c.lng;
-      setStatus('已把地图中心设为你：' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5) + '（点“分析”生效）');
+      var near = nearestLoadedPortal(c.lat, c.lng);
+      if (!near) { setStatus('地图中心附近没有已加载的 portal', true); return; }
+      state.meLat = c.lat;
+      state.meLng = c.lng;
+      state.selectedGuid = near.guid;
+      state.centerGuid = near.guid;
+      state.centerPortal = null;
+      updateRunButton();
+      centerLabel();
+      run();
     };
     $('drone-l8-clear').onclick = function () {
       clearLayers();

@@ -38,7 +38,7 @@ https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc
    - **可达 L8（按跳数）**：跳数 = 小时数；
    - **不可达的最近 L8：替代起点**：每个目标给“离你最近”的 3 个起点。
    - 结果里的 L8 会异步拉取 portal details，带 `Ito En Transmuter (-)` 的显示 `ITO EN (-)` 标签（details 缓存 7 天）。
-4. “我在地图中心”：把当前地图中心设为你本人位置（默认用中心 portal）。
+4. “从地图中心开始搜索”：取地图中心最近的已加载 portal 作为中心，并立即开始搜索（同时把它设为你本人的位置）。
 
 ## 数据与运行时校验
 

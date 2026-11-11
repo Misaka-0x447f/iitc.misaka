@@ -45,8 +45,8 @@ https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc
 - 用 `IITC.map.tiles` 计算 `dataZoom=15` 的瓦片，`window.postAjax('getEntities', {tileKeys})` 拉取；
   每瓦片约 1.2 km，含该格全部等级 portal。
 - 每请求 5 个瓦片、4 路并发、失败重试 2 次。
-- 缓存：`localStorage` 持久化（key 前缀 `bfs.iitc.misaka.cache.v1.`），TTL 7 天；
-  面板显示占用体积，可点“清除缓存”；超过浏览器配额时按最旧优先淘汰。
+- 缓存：`IndexedDB` 持久化（库 `bfs.iitc.misaka`，stores: `tiles` / `details` / `meta`），TTL 7 天；
+  面板显示占用体积，可点“清除缓存”；不再受 localStorage 5 MB 限制。
   不复用 IITC 的 `mapDataRequest.cache`，也不经过 IITC 的渲染缓存。
 - 搜索从 1 km 起按 1→2→3→4→6…km 扩张，找到“数量”个符合条件 L8 或到达距离上限即停；
   停止后再向下一个档位外扩一档（不超过距离上限）补全路径上下文。

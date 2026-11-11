@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.193330
+// @version        2026.11.11.193724
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -444,17 +444,58 @@ function wrapper(plugin_info) {
   var MAX_RADIUS_KM = 1000;
   var MAX_FETCH_PER_RUN = 5000;
   var BOUNDARY_MARGIN_M = 150;
-  var CACHE_PREFIX = 'bfs.iitc.misaka.cache.v1.';
-  var DETAILS_PREFIX = 'bfs.iitc.misaka.details.v1.';
   var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  var storageOk = (function () {
-    try {
-      var probe = CACHE_PREFIX + '__probe';
-      localStorage.setItem(probe, '1');
-      localStorage.removeItem(probe);
-      return true;
-    } catch (e) { return false; }
-  })();
+  var DETAILS_LIMIT = 30;
+  var DB_NAME = 'bfs.iitc.misaka';
+  var DB_VERSION = 1;
+  var dbPromise = null;
+  var storageOk = !!window.indexedDB;
+
+  function openDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (resolve, reject) {
+      var req;
+      try { req = indexedDB.open(DB_NAME, DB_VERSION); }
+      catch (e) { reject(e); return; }
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains('tiles')) db.createObjectStore('tiles');
+        if (!db.objectStoreNames.contains('details')) db.createObjectStore('details');
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { storageOk = false; reject(req.error); };
+    });
+    return dbPromise;
+  }
+
+  function idbReq(store, mode, fn) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(store, mode);
+        var req = fn(tx.objectStore(store));
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  function idbGet(store, key) { return idbReq(store, 'readonly', function (os) { return os.get(key); }); }
+  function idbPut(store, key, val) { return idbReq(store, 'readwrite', function (os) { return os.put(val, key); }); }
+  function idbDelete(store, key) { return idbReq(store, 'readwrite', function (os) { return os.delete(key); }); }
+  function idbClear(store) { return idbReq(store, 'readwrite', function (os) { return os.clear(); }); }
+  function idbKeys(store) { return idbReq(store, 'readonly', function (os) { return os.getAllKeys(); }); }
+
+  var metaChain = Promise.resolve();
+  function adjustMeta(delta) {
+    if (!delta) return metaChain;
+    metaChain = metaChain.then(function () {
+      return idbGet('meta', 'bytes');
+    }).then(function (v) {
+      return idbPut('meta', 'bytes', (v || 0) + delta);
+    }).catch(function () {});
+    return metaChain;
+  }
 
   var state = {
     centerGuid: null,
@@ -621,13 +662,13 @@ function wrapper(plugin_info) {
     });
   }
 
-  function fetchTiles(ids, onProgress, budget) {
+  async function fetchTiles(ids, onProgress, budget) {
     var stats = { expected: ids.length, cached: 0, requested: 0, retried: 0, failed: [], budgetHit: false };
     var pending = [];
     for (var ii = 0; ii < ids.length; ii++) {
       var tid = ids[ii];
       if (tid in tileCache) continue;
-      var stored = loadTile(tid);
+      var stored = await loadTile(tid);
       if (stored) { tileCache[tid] = stored; tileCount++; continue; }
       pending.push(tid);
     }
@@ -701,68 +742,37 @@ function wrapper(plugin_info) {
     return { portals: out, duplicates: dup };
   }
 
-  function cacheKeys() {
-    var out = [];
-    try {
-      for (var i = 0; i < localStorage.length; i++) {
-        var k = localStorage.key(i);
-        if (k && (k.indexOf(CACHE_PREFIX) === 0 || k.indexOf(DETAILS_PREFIX) === 0)) out.push(k);
-      }
-    } catch (e) {}
-    return out;
-  }
-
-  function cacheSize() {
-    if (!storageOk) return 0;
-    var n = 0;
-    var keys = cacheKeys();
-    for (var i = 0; i < keys.length; i++) {
-      var v = localStorage.getItem(keys[i]) || '';
-      n += (keys[i].length + v.length) * 2;
-    }
-    return n;
-  }
-
   function formatBytes(n) {
     if (n < 1024) return n + ' B';
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
     return (n / 1024 / 1024).toFixed(2) + ' MB';
   }
 
-  function removeStored(id) {
-    if (!storageOk) return;
-    try { localStorage.removeItem(CACHE_PREFIX + id); } catch (e) {}
-  }
-
-  function evictOldest() {
-    var keys = cacheKeys();
-    var oldestKey = null, oldestTime = Infinity;
-    for (var i = 0; i < keys.length; i++) {
-      try {
-        var o = JSON.parse(localStorage.getItem(keys[i]));
-        if (!o || !o.t) { localStorage.removeItem(keys[i]); continue; }
-        if (o.t < oldestTime) { oldestTime = o.t; oldestKey = keys[i]; }
-      } catch (e) { localStorage.removeItem(keys[i]); }
-    }
-    if (!oldestKey) return false;
-    localStorage.removeItem(oldestKey);
-    return true;
+  function cacheSize() {
+    if (!storageOk) return Promise.resolve(0);
+    return metaChain.then(function () {
+      return idbGet('meta', 'bytes');
+    }).then(function (v) { return v || 0; }).catch(function () { return 0; });
   }
 
   function loadTile(id) {
-    if (!storageOk) return null;
-    try {
-      var raw = localStorage.getItem(CACHE_PREFIX + id);
-      if (!raw) return null;
-      var o = JSON.parse(raw);
-      if (!o || !o.t || !o.p || Date.now() - o.t > CACHE_TTL_MS) { removeStored(id); return null; }
+    if (!storageOk) return Promise.resolve(null);
+    return idbGet('tiles', id).then(function (rec) {
+      if (!rec) return null;
+      if (!rec.t || Date.now() - rec.t > CACHE_TTL_MS) {
+        return idbDelete('tiles', id).then(function () {
+          adjustMeta(-((rec.raw || '').length * 2));
+          return null;
+        });
+      }
+      var arr = JSON.parse(rec.raw);
       var out = [];
-      for (var i = 0; i < o.p.length; i++) {
-        var a = o.p[i];
+      for (var i = 0; i < arr.length; i++) {
+        var a = arr[i];
         out.push({ guid: a[0], title: a[1] || '', lat: a[2], lng: a[3], level: a[4], team: a[5] });
       }
       return out;
-    } catch (e) { removeStored(id); return null; }
+    }).catch(function () { return null; });
   }
 
   function saveTile(id, portals) {
@@ -772,24 +782,37 @@ function wrapper(plugin_info) {
       var p = portals[i];
       packed.push([p.guid, p.title || '', p.lat, p.lng, p.level, p.team]);
     }
-    var payload = JSON.stringify({ t: Date.now(), p: packed });
-    var key = CACHE_PREFIX + id;
-    for (var attempt = 0; attempt < 50; attempt++) {
-      try { localStorage.setItem(key, payload); return; }
-      catch (e) { if (!evictOldest()) return; }
-    }
+    var raw = JSON.stringify(packed);
+    idbGet('tiles', id).catch(function () { return null; }).then(function (old) {
+      return idbPut('tiles', id, { t: Date.now(), raw: raw }).then(function () {
+        adjustMeta(raw.length * 2 - (old && old.raw ? old.raw.length * 2 : 0));
+      });
+    }).catch(function () {});
   }
 
   function pruneExpired() {
-    if (!storageOk) return;
-    var now = Date.now();
-    var keys = cacheKeys();
-    for (var i = 0; i < keys.length; i++) {
-      try {
-        var o = JSON.parse(localStorage.getItem(keys[i]));
-        if (!o || !o.t || now - o.t > CACHE_TTL_MS) localStorage.removeItem(keys[i]);
-      } catch (e) { localStorage.removeItem(keys[i]); }
-    }
+    if (!storageOk) return Promise.resolve();
+    var chain = Promise.resolve();
+    ['tiles', 'details'].forEach(function (store) {
+      chain = chain.then(function () {
+        return idbKeys(store).then(function (keys) {
+          var seq = Promise.resolve();
+          keys.forEach(function (key) {
+            seq = seq.then(function () {
+              return idbGet(store, key).then(function (rec) {
+                if (!rec || !rec.t || Date.now() - rec.t > CACHE_TTL_MS) {
+                  return idbDelete(store, key).then(function () {
+                    adjustMeta(-((rec && rec.raw ? rec.raw.length : 0) * 2));
+                  });
+                }
+              });
+            });
+          });
+          return seq;
+        });
+      });
+    });
+    return chain.catch(function () {});
   }
 
   var lastCacheLabelAt = 0;
@@ -799,22 +822,23 @@ function wrapper(plugin_info) {
     lastCacheLabelAt = now;
     var el = $('drone-l8-cache');
     if (!el) return;
-    el.textContent = '缓存 ' + formatBytes(cacheSize()) + '（TTL 7 天）';
+    cacheSize().then(function (n) { el.textContent = '缓存 ' + formatBytes(n) + '（TTL 7 天）'; });
   }
 
   function clearPersistentCache() {
-    if (storageOk) {
-      var keys = cacheKeys();
-      for (var i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]);
-    }
-    tileCache = Object.create(null);
-    tileCount = 0;
-    updateCacheLabel(true);
+    var done = function () {
+      tileCache = Object.create(null);
+      detailsMemory = Object.create(null);
+      tileCount = 0;
+      updateCacheLabel(true);
+    };
+    if (!storageOk) { done(); return; }
+    Promise.all([idbClear('tiles'), idbClear('details'), idbPut('meta', 'bytes', 0)])
+      .then(done).catch(done);
   }
 
   var detailsMemory = Object.create(null);
   var detailsInflight = Object.create(null);
-  var DETAILS_LIMIT = 30;
 
   function parseDetailsMods(arr) {
     if (!Array.isArray(arr)) return [];
@@ -829,42 +853,46 @@ function wrapper(plugin_info) {
     return out;
   }
 
-  function loadDetails(guid) {
-    if (guid in detailsMemory) return detailsMemory[guid];
-    if (storageOk) {
-      try {
-        var raw = localStorage.getItem(DETAILS_PREFIX + guid);
-        if (raw) {
-          var o = JSON.parse(raw);
-          if (o && o.t && Date.now() - o.t <= CACHE_TTL_MS) {
-            detailsMemory[guid] = o.mods || [];
-            return detailsMemory[guid];
-          }
-          localStorage.removeItem(DETAILS_PREFIX + guid);
-        }
-      } catch (e) {
-        try { localStorage.removeItem(DETAILS_PREFIX + guid); } catch (e2) {}
-      }
-    }
+  function lookupIitcDetails(guid) {
     var p = window.portals && window.portals[guid];
     var d = p && p.options && p.options.data;
-    if (d && Array.isArray(d.mods)) {
-      var mods = [];
-      for (var j = 0; j < d.mods.length; j++) {
-        var m = d.mods[j];
-        if (m && m.name) mods.push({ name: m.name, stats: m.stats || {} });
-      }
-      if (mods.length) { detailsMemory[guid] = mods; return mods; }
+    if (!d || !Array.isArray(d.mods)) return null;
+    var mods = [];
+    for (var i = 0; i < d.mods.length; i++) {
+      var m = d.mods[i];
+      if (m && m.name) mods.push({ name: m.name, stats: m.stats || {} });
     }
-    return null;
+    if (!mods.length) return null;
+    detailsMemory[guid] = mods;
+    return mods;
+  }
+
+  function loadDetails(guid) {
+    if (guid in detailsMemory) return Promise.resolve(detailsMemory[guid]);
+    if (!storageOk) return Promise.resolve(lookupIitcDetails(guid));
+    return idbGet('details', guid).catch(function () { return null; }).then(function (rec) {
+      if (!rec) return lookupIitcDetails(guid);
+      if (!rec.t || Date.now() - rec.t > CACHE_TTL_MS) {
+        return idbDelete('details', guid).then(function () {
+          adjustMeta(-((rec.raw || '').length * 2));
+          return lookupIitcDetails(guid);
+        });
+      }
+      var mods = JSON.parse(rec.raw);
+      detailsMemory[guid] = mods;
+      return mods;
+    }).catch(function () { return lookupIitcDetails(guid); });
   }
 
   function saveDetails(guid, mods) {
     detailsMemory[guid] = mods;
     if (!storageOk) return;
-    try {
-      localStorage.setItem(DETAILS_PREFIX + guid, JSON.stringify({ t: Date.now(), mods: mods }));
-    } catch (e) {}
+    var raw = JSON.stringify(mods);
+    idbGet('details', guid).catch(function () { return null; }).then(function (old) {
+      return idbPut('details', guid, { t: Date.now(), raw: raw }).then(function () {
+        adjustMeta(raw.length * 2 - (old && old.raw ? old.raw.length * 2 : 0));
+      });
+    }).catch(function () {});
   }
 
   function fetchDetails(guid) {
@@ -907,7 +935,7 @@ function wrapper(plugin_info) {
     return s;
   }
 
-  function refreshMods(res) {
+  async function refreshMods(res) {
     var seen = Object.create(null);
     var guids = [];
     function add(idx) {
@@ -924,7 +952,7 @@ function wrapper(plugin_info) {
     var pending = [];
     for (var i = 0; i < guids.length; i++) {
       var g = guids[i];
-      var mods = loadDetails(g);
+      var mods = await loadDetails(g);
       if (mods === null) pending.push(g);
       else setModBadge(g, modBadgeText(mods));
     }

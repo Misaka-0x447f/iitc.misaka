@@ -29,6 +29,12 @@
   var MAX_RADIUS_KM = 1000;
   var MAX_FETCH_PER_RUN = 5000;
   var BOUNDARY_MARGIN_M = 150;
+  var ENL_GREEN = (function () {
+    try {
+      var c = getComputedStyle(document.documentElement).getPropertyValue('--color-enl').trim();
+      return c || '#03fe03';
+    } catch (e) { return '#03fe03'; }
+  })();
   var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   var DETAILS_LIMIT = 30;
   var DB_NAME = 'bfs.iitc.misaka';
@@ -127,11 +133,11 @@
     layers.clearLayers();
   }
 
-  function setStatus(msg, isErr) {
+  function setStatus(msg, isErr, isLoading) {
     var el = $('drone-l8-status');
     if (!el) return;
     el.textContent = msg || '';
-    el.style.color = isErr ? '#f66' : '';
+    el.style.color = isErr ? '#f66' : (isLoading ? ENL_GREEN : '');
   }
 
   function drawPath(portals, idxs, color, label, fit) {
@@ -732,7 +738,7 @@
     var me = (state.meLat != null) ? { lat: state.meLat, lng: state.meLng } : { lat: center.lat, lng: center.lng };
 
     busy = true;
-    setStatus('准备加载数据…');
+    setStatus('准备加载数据…', false, true);
     var started = performance.now();
     var maxKm = state.maxKm;
     var steps = RADIUS_STEPS_KM.filter(function (r) { return r <= maxKm; });
@@ -799,9 +805,9 @@
     function fetchRadius(radiusKm, cb) {
       var ids = tilesForDisc(center.lat, center.lng, radiusKm * 1000);
       if (!ids || !window.postAjax) { cb(); return; }
-      setStatus('拉取数据：半径 ' + radiusKm + ' km …');
+      setStatus('拉取数据：半径 ' + radiusKm + ' km …', false, true);
       fetchTiles(ids, function (done, total) {
-        if (total) setStatus('拉取数据：半径 ' + radiusKm + ' km，' + done + '/' + total + ' 个瓦片 …');
+        if (total) setStatus('拉取数据：半径 ' + radiusKm + ' km，' + done + '/' + total + ' 个瓦片 …', false, true);
         updateCacheLabel();
       }, runBudget).then(function (stats) {
         mergeStats(fetchStats, stats);
@@ -834,11 +840,11 @@
         }
         if (fetchKm > stopKm) {
           fetchRadius(fetchKm, function () {
-            setStatus('计算中（' + allPortals().portals.length + ' 个 portal）…');
+            setStatus('计算中（' + allPortals().portals.length + ' 个 portal）…', false, true);
             finish(stopKm, fetchKm, found);
           });
         } else {
-          setStatus('计算中（' + pack.portals.length + ' 个 portal）…');
+          setStatus('计算中（' + pack.portals.length + ' 个 portal）…', false, true);
           finish(stopKm, fetchKm, found);
         }
       });

@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.192901
+// @version        2026.11.11.193330
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -533,7 +533,7 @@ function wrapper(plugin_info) {
 
   function selectPortalInIitc(p) {
     state.selectedGuid = p.guid;
-    selectionLabel();
+    updateRunButton();
     try { window.selectedPortal = p.guid; } catch (e) {}
     if (window.portals && window.portals[p.guid] &&
         window.IITC && IITC.portal && IITC.portal.display && IITC.portal.display.renderDetails) {
@@ -973,18 +973,16 @@ function wrapper(plugin_info) {
   function centerLabel() {
     var el = $('drone-l8-center');
     if (!el) return;
-    if (!state.centerGuid) { el.textContent = '中心：未选中 portal'; return; }
+    if (!state.centerGuid) { el.textContent = '当前结果基于：未选中 portal'; return; }
     var t = (state.centerPortal && state.centerPortal.guid === state.centerGuid)
       ? state.centerPortal.title : portalTitle(state.centerGuid);
-    el.textContent = '中心：' + (t || state.centerGuid.substring(0, 8));
+    el.textContent = '当前结果基于：' + (t || state.centerGuid.substring(0, 8));
   }
 
-  function selectionLabel() {
-    var el = $('drone-l8-sel');
+  function updateRunButton() {
+    var el = $('drone-l8-run');
     if (!el) return;
-    if (!state.selectedGuid) { el.textContent = ''; return; }
-    el.textContent = '选中：' + portalTitle(state.selectedGuid) +
-      (state.selectedGuid === state.centerGuid ? '（当前中心）' : '（点“分析”以此为心）');
+    el.textContent = state.selectedGuid ? '从此 portal 开始搜索' : '无选中 portal';
   }
 
   function currentCenter() {
@@ -1147,7 +1145,7 @@ function wrapper(plugin_info) {
       state.centerPortal = res.portals[res.center];
       state.centerGuid = state.centerPortal.guid;
       centerLabel();
-      selectionLabel();
+      updateRunButton();
       clearLayers();
       render(res, portals.length, stopKm, fetchKm, found, secs, v, flags);
       var c = res.portals[res.center];
@@ -1350,8 +1348,7 @@ function wrapper(plugin_info) {
     panel.className = 'plugin';
     panel.innerHTML =
       '<div class="drone-l8-title">bfs.iitc.misaka</div>' +
-      '<div id="drone-l8-center" class="drone-l8-center">中心：未选中 portal</div>' +
-      '<div id="drone-l8-sel" class="drone-l8-center"></div>' +
+      '<div id="drone-l8-center" class="drone-l8-center">当前结果基于：未选中 portal</div>' +
       '<div class="drone-l8-row">' +
       '  <label>数量 <input id="drone-l8-count" type="number" min="1" max="50" value="5"></label>' +
       '  <label>距离 ≤ <input id="drone-l8-maxkm" type="number" min="1" max="1000" value="6"> km</label>' +
@@ -1361,7 +1358,7 @@ function wrapper(plugin_info) {
       '  <input id="drone-l8-filter" type="text" placeholder="标题过滤（可空，如 ITO EN）">' +
       '</div>' +
       '<div class="drone-l8-row">' +
-      '  <button id="drone-l8-run">分析</button>' +
+      '  <button id="drone-l8-run">无选中 portal</button>' +
       '  <button id="drone-l8-me">我在地图中心</button>' +
       '  <button id="drone-l8-clear">清除</button>' +
       '</div>' +
@@ -1430,10 +1427,8 @@ function wrapper(plugin_info) {
   function hook() {
     if (!window.addHook) return;
     window.addHook('portalSelected', function (data) {
-      var guid = (data && data.selectedPortalGuid) || window.selectedPortal;
-      if (!guid) return;
-      state.selectedGuid = guid;
-      selectionLabel();
+      state.selectedGuid = (data && data.selectedPortalGuid) || window.selectedPortal || null;
+      updateRunButton();
     });
   }
 
@@ -1444,8 +1439,7 @@ function wrapper(plugin_info) {
     hook();
     state.selectedGuid = window.selectedPortal || null;
     centerLabel();
-    selectionLabel();
-    setStatus('选中 portal 后点“分析”');
+    updateRunButton();
   };
 })();
 

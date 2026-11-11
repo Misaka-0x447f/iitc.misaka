@@ -106,8 +106,24 @@
     }).addTo(layers);
     if (label) setStatus(label);
     if (fit === false) return;
-    if (idxs.length > 1) window.map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40] });
-    else window.map.setView(latlngs[0], 17);
+    if (idxs.length > 1) {
+      window.map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40], maxZoom: 17 });
+      if (window.map.getZoom() < 15) window.map.setZoom(15);
+    } else {
+      window.map.setView(latlngs[0], 17);
+    }
+  }
+
+  function selectPortalInIitc(p) {
+    state.selectedGuid = p.guid;
+    selectionLabel();
+    try { window.selectedPortal = p.guid; } catch (e) {}
+    if (window.portals && window.portals[p.guid] &&
+        window.IITC && IITC.portal && IITC.portal.display && IITC.portal.display.renderDetails) {
+      IITC.portal.display.renderDetails(p.guid);
+    } else if (window.IITC && IITC.portal && IITC.portal.selectWhenLoadedByGuid) {
+      IITC.portal.selectWhenLoadedByGuid(p.guid);
+    }
   }
 
   // jump the map to a result portal; keep the current result list untouched
@@ -117,6 +133,7 @@
     clearLayers();
     if (path && path.length > 1) drawPath(portals, path, color || '#ffd400', null, false);
     window.map.setView([p.lat, p.lng], 17, { animate: false });
+    selectPortalInIitc(p);
     L.circleMarker([p.lat, p.lng], {
       radius: 9, color: '#fff', weight: 2, fillColor: color || '#ffd400', fillOpacity: 0.95
     }).addTo(layers);

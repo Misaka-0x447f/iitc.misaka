@@ -5,6 +5,7 @@
   - knowledges/index.md 知识库索引
   - knowledges/20261111/vendored-exceptions.md 第三方/ES5 例外说明
   - knowledges/20261111/build-and-release.md 构建与发布注意事项
+  - knowledges/20261111/ui-behavior.md 结果跳转、保留与缓存策略
   - design/index.md 设计文档索引
 - .gitignore 忽略根目录同名产物与缓存
 - build.py 拼接 src 生成 dist

@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.160640
+// @version        2026.11.11.162148
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -449,6 +449,8 @@ function wrapper(plugin_info) {
 
   var state = {
     centerGuid: null,
+    centerPortal: null,
+    selectedGuid: null,
     meLat: null,
     meLng: null,
     count: 5,
@@ -497,7 +499,7 @@ function wrapper(plugin_info) {
     el.style.color = isErr ? '#f66' : '';
   }
 
-  function drawPath(portals, idxs, color, label) {
+  function drawPath(portals, idxs, color, label, fit) {
     if (!idxs || !idxs.length) return;
     var latlngs = idxs.map(function (i) { return [portals[i].lat, portals[i].lng]; });
     L.polyline(latlngs, { color: color, weight: 4, opacity: 0.9 }).addTo(layers);
@@ -510,9 +512,23 @@ function wrapper(plugin_info) {
     L.circle([first.lat, first.lng], {
       radius: 500, color: '#0ff', weight: 1, opacity: 0.6, fill: false
     }).addTo(layers);
+    if (label) setStatus(label);
+    if (fit === false) return;
     if (idxs.length > 1) window.map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40] });
     else window.map.setView(latlngs[0], 17);
-    if (label) setStatus(label);
+  }
+
+  // jump the map to a result portal; keep the current result list untouched
+  function jumpTo(portals, idx, path, color) {
+    var p = portals[idx];
+    if (!p) return;
+    clearLayers();
+    if (path && path.length > 1) drawPath(portals, path, color || '#ffd400', null, false);
+    window.map.setView([p.lat, p.lng], 17, { animate: false });
+    L.circleMarker([p.lat, p.lng], {
+      radius: 9, color: '#fff', weight: 2, fillColor: color || '#ffd400', fillOpacity: 0.95
+    }).addTo(layers);
+    setStatus(p.title || p.guid);
   }
 
   // ---------- Intel data fetch ----------
@@ -662,13 +678,32 @@ function wrapper(plugin_info) {
     };
   }
 
+  function portalTitle(guid) {
+    var m = (window.portals || {})[guid];
+    var t = m && m.options && m.options.data && m.options.data.title;
+    return t || (guid ? guid.substring(0, 8) : '');
+  }
+
   function centerLabel() {
     var el = $('drone-l8-center');
     if (!el) return;
     if (!state.centerGuid) { el.textContent = '中心：未选中 portal'; return; }
-    var m = (window.portals || {})[state.centerGuid];
-    var title = m && m.options && m.options.data && m.options.data.title;
-    el.textContent = '中心：' + (title || state.centerGuid.substring(0, 8));
+    var t = (state.centerPortal && state.centerPortal.guid === state.centerGuid)
+      ? state.centerPortal.title : portalTitle(state.centerGuid);
+    el.textContent = '中心：' + (t || state.centerGuid.substring(0, 8));
+  }
+
+  function selectionLabel() {
+    var el = $('drone-l8-sel');
+    if (!el) return;
+    if (!state.selectedGuid) { el.textContent = ''; return; }
+    el.textContent = '选中：' + portalTitle(state.selectedGuid) +
+      (state.selectedGuid === state.centerGuid ? '（当前中心）' : '（点“分析”以此为心）');
+  }
+
+  function currentCenter() {
+    if (state.centerPortal && state.centerPortal.guid === state.centerGuid) return state.centerPortal;
+    return centerInfo();
   }
 
   function qualifies(p, center, maxM, filter) {
@@ -774,7 +809,7 @@ function wrapper(plugin_info) {
 
   function run() {
     if (busy) { setStatus('正在跑，稍等…', true); return; }
-    var center = centerInfo();
+    var center = currentCenter();
     if (!center) { setStatus('先选中一个 portal 作为中心', true); return; }
     var me = (state.meLat != null) ? { lat: state.meLat, lng: state.meLng } : { lat: center.lat, lng: center.lng };
 
@@ -817,6 +852,10 @@ function wrapper(plugin_info) {
       PLUGIN.lastValidation = v;
 
       busy = false;
+      state.centerPortal = res.portals[res.center];
+      state.centerGuid = state.centerPortal.guid;
+      centerLabel();
+      selectionLabel();
       clearLayers();
       render(res, portals.length, stopKm, fetchKm, found, secs, v, flags);
       var c = res.portals[res.center];
@@ -917,7 +956,8 @@ function wrapper(plugin_info) {
     table.className = 'drone-l8-table';
     res.nearest.forEach(function (r) {
       var tr = document.createElement('tr');
-      if (r.hops >= 0) tr.title = '点击画出从中心出发的路线';
+      tr.className = 'drone-l8-clickable';
+      tr.title = '点击跳转到该 portal';
       var name = document.createElement('td');
       name.textContent = r.title + (flags[r.idx] ? ' ⚠贴边' : '');
       tr.appendChild(name);
@@ -926,14 +966,8 @@ function wrapper(plugin_info) {
       tr.appendChild(team);
       tr.appendChild(td(Math.round(r.dist) + ' m', 'drone-l8-num'));
       tr.appendChild(td(r.hops >= 0 ? r.hops + ' 跳' : '不可达', 'drone-l8-num'));
-      if (r.hops >= 0) {
-        tr.className = 'drone-l8-clickable';
-        tr.setAttribute('data-idx', r.idx);
-        tr.onclick = function () {
-          clearLayers();
-          drawPath(res.portals, Core.pathForward(res.fparent, parseInt(this.getAttribute('data-idx'), 10)), '#ffd400', '路线：' + r.hops + ' 跳');
-        };
-      }
+      var path = r.hops >= 0 ? Core.pathForward(res.fparent, r.idx) : null;
+      tr.onclick = function () { jumpTo(res.portals, r.idx, path, '#ffd400'); };
       table.appendChild(tr);
     });
     box.appendChild(table);
@@ -953,10 +987,7 @@ function wrapper(plugin_info) {
         n1.textContent = q.title + (flags[r.idx] ? ' ⚠贴边' : '');
         tr.appendChild(n1);
         tr.appendChild(td(r.hops + ' 跳', 'drone-l8-num'));
-        tr.onclick = function () {
-          clearLayers();
-          drawPath(res.portals, r.path, '#ffd400', '路线：' + r.hops + ' 跳');
-        };
+        tr.onclick = function () { jumpTo(res.portals, r.idx, r.path, '#ffd400'); };
         t2.appendChild(tr);
       });
       box.appendChild(t2);
@@ -974,8 +1005,9 @@ function wrapper(plugin_info) {
         wrap.className = 'drone-l8-suggest';
 
         var t = document.createElement('div');
-        t.className = 'drone-l8-target';
+        t.className = 'drone-l8-target drone-l8-clickable';
         t.textContent = '目标 ' + target.title + '（离中心 ' + Math.round(s.distFromCenter) + ' m）';
+        t.onclick = function () { jumpTo(res.portals, s.target, null, '#f80'); };
         wrap.appendChild(t);
 
         if (!s.nearestStarts.length) {
@@ -1014,6 +1046,7 @@ function wrapper(plugin_info) {
     panel.innerHTML =
       '<div class="drone-l8-title">bfs.iitc.misaka</div>' +
       '<div id="drone-l8-center" class="drone-l8-center">中心：未选中 portal</div>' +
+      '<div id="drone-l8-sel" class="drone-l8-center"></div>' +
       '<div class="drone-l8-row">' +
       '  <label>数量 <input id="drone-l8-count" type="number" min="1" max="50" value="5"></label>' +
       '  <label>距离 ≤ <input id="drone-l8-maxkm" type="number" min="1" max="20" value="6"> km</label>' +
@@ -1063,6 +1096,8 @@ function wrapper(plugin_info) {
       state.maxKm = Math.max(1, Math.min(20, parseInt($('drone-l8-maxkm').value, 10) || 6));
       state.suggest = Math.max(0, Math.min(10, parseInt($('drone-l8-suggest').value, 10) || 0));
       state.titleFilter = ($('drone-l8-filter').value || '').trim();
+      var guid = state.selectedGuid || window.selectedPortal || state.centerGuid;
+      if (guid) state.centerGuid = guid;
       run();
     };
     $('drone-l8-me').onclick = function () {
@@ -1082,9 +1117,8 @@ function wrapper(plugin_info) {
     window.addHook('portalSelected', function (data) {
       var guid = (data && data.selectedPortalGuid) || window.selectedPortal;
       if (!guid) return;
-      state.centerGuid = guid;
-      centerLabel();
-      if (document.getElementById('drone-l8-panel')) run();
+      state.selectedGuid = guid;
+      selectionLabel();
     });
   }
 
@@ -1092,9 +1126,10 @@ function wrapper(plugin_info) {
     ensureLayers();
     buildPanel();
     hook();
-    if (window.selectedPortal) state.centerGuid = window.selectedPortal;
+    state.selectedGuid = window.selectedPortal || null;
     centerLabel();
-    if (state.centerGuid) run();
+    selectionLabel();
+    setStatus('选中 portal 后点“分析”');
   };
 })();
 

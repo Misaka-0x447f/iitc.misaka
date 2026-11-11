@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.162148
+// @version        2026.11.11.162752
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -446,6 +446,16 @@ function wrapper(plugin_info) {
   var TILE_RETRIES = 2;
   var RADIUS_STEPS_KM = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20];
   var BOUNDARY_MARGIN_M = 150;
+  var CACHE_PREFIX = 'bfs.iitc.misaka.cache.v1.';
+  var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  var storageOk = (function () {
+    try {
+      var probe = CACHE_PREFIX + '__probe';
+      localStorage.setItem(probe, '1');
+      localStorage.removeItem(probe);
+      return true;
+    } catch (e) { return false; }
+  })();
 
   var state = {
     centerGuid: null,
@@ -597,7 +607,14 @@ function wrapper(plugin_info) {
 
   function fetchTiles(ids, onProgress) {
     var stats = { expected: ids.length, cached: 0, requested: 0, retried: 0, failed: [] };
-    var pending = ids.filter(function (id) { return !(id in tileCache); });
+    var pending = [];
+    for (var ii = 0; ii < ids.length; ii++) {
+      var tid = ids[ii];
+      if (tid in tileCache) continue;
+      var stored = loadTile(tid);
+      if (stored) { tileCache[tid] = stored; tileCount++; continue; }
+      pending.push(tid);
+    }
     stats.cached = stats.expected - pending.length;
     stats.requested = pending.length;
     var total = pending.length, done = 0;
@@ -611,8 +628,10 @@ function wrapper(plugin_info) {
             var id = chunk[i];
             var tile = res.map[id];
             if (!tile || !Array.isArray(tile.gameEntities)) { bad.push(id); continue; }
-            tileCache[id] = parseTile(res.map, id);
+            var ps = parseTile(res.map, id);
+            tileCache[id] = ps;
             tileCount++;
+            saveTile(id, ps);
           }
         } else {
           bad = chunk.slice();
@@ -661,6 +680,113 @@ function wrapper(plugin_info) {
       }
     }
     return { portals: out, duplicates: dup };
+  }
+
+  function cacheKeys() {
+    var out = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(CACHE_PREFIX) === 0) out.push(k);
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function cacheSize() {
+    if (!storageOk) return 0;
+    var n = 0;
+    var keys = cacheKeys();
+    for (var i = 0; i < keys.length; i++) {
+      var v = localStorage.getItem(keys[i]) || '';
+      n += (keys[i].length + v.length) * 2;
+    }
+    return n;
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
+  function removeStored(id) {
+    if (!storageOk) return;
+    try { localStorage.removeItem(CACHE_PREFIX + id); } catch (e) {}
+  }
+
+  function evictOldest() {
+    var keys = cacheKeys();
+    var oldestKey = null, oldestTime = Infinity;
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var o = JSON.parse(localStorage.getItem(keys[i]));
+        if (!o || !o.t) { localStorage.removeItem(keys[i]); continue; }
+        if (o.t < oldestTime) { oldestTime = o.t; oldestKey = keys[i]; }
+      } catch (e) { localStorage.removeItem(keys[i]); }
+    }
+    if (!oldestKey) return false;
+    localStorage.removeItem(oldestKey);
+    return true;
+  }
+
+  function loadTile(id) {
+    if (!storageOk) return null;
+    try {
+      var raw = localStorage.getItem(CACHE_PREFIX + id);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (!o || !o.t || !o.p || Date.now() - o.t > CACHE_TTL_MS) { removeStored(id); return null; }
+      var out = [];
+      for (var i = 0; i < o.p.length; i++) {
+        var a = o.p[i];
+        out.push({ guid: a[0], title: a[1] || '', lat: a[2], lng: a[3], level: a[4], team: a[5] });
+      }
+      return out;
+    } catch (e) { removeStored(id); return null; }
+  }
+
+  function saveTile(id, portals) {
+    if (!storageOk) return;
+    var packed = [];
+    for (var i = 0; i < portals.length; i++) {
+      var p = portals[i];
+      packed.push([p.guid, p.title || '', p.lat, p.lng, p.level, p.team]);
+    }
+    var payload = JSON.stringify({ t: Date.now(), p: packed });
+    var key = CACHE_PREFIX + id;
+    for (var attempt = 0; attempt < 50; attempt++) {
+      try { localStorage.setItem(key, payload); return; }
+      catch (e) { if (!evictOldest()) return; }
+    }
+  }
+
+  function pruneExpired() {
+    if (!storageOk) return;
+    var now = Date.now();
+    var keys = cacheKeys();
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var o = JSON.parse(localStorage.getItem(keys[i]));
+        if (!o || !o.t || now - o.t > CACHE_TTL_MS) localStorage.removeItem(keys[i]);
+      } catch (e) { localStorage.removeItem(keys[i]); }
+    }
+  }
+
+  function updateCacheLabel() {
+    var el = $('drone-l8-cache');
+    if (!el) return;
+    el.textContent = '缓存 ' + formatBytes(cacheSize()) + '（TTL 7 天）';
+  }
+
+  function clearPersistentCache() {
+    if (storageOk) {
+      var keys = cacheKeys();
+      for (var i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]);
+    }
+    tileCache = Object.create(null);
+    tileCount = 0;
+    updateCacheLabel();
   }
 
   function centerInfo() {
@@ -867,6 +993,7 @@ function wrapper(plugin_info) {
       var area = fetchKm > stopKm
         ? ('半径 ' + stopKm + ' km（外扩到 ' + fetchKm + ' km）')
         : ('半径 ' + stopKm + ' km');
+      updateCacheLabel();
       setStatus('完成：找到 ' + found + ' 个（上限 ' + state.count + '），' + area +
         '，' + portals.length + ' 个 portal，用时 ' + secs.toFixed(1) + ' s');
     }
@@ -1060,6 +1187,10 @@ function wrapper(plugin_info) {
       '  <button id="drone-l8-me">我在地图中心</button>' +
       '  <button id="drone-l8-clear">清除</button>' +
       '</div>' +
+      '<div class="drone-l8-row">' +
+      '  <span id="drone-l8-cache" class="drone-l8-meta"></span>' +
+      '  <button id="drone-l8-clear-cache">清除缓存</button>' +
+      '</div>' +
       '<div id="drone-l8-status"></div>' +
       '<div id="drone-l8-validate"></div>' +
       '<div id="drone-l8-results"></div>';
@@ -1110,6 +1241,11 @@ function wrapper(plugin_info) {
       clearLayers();
       setStatus('');
     };
+    $('drone-l8-clear-cache').onclick = function () {
+      clearPersistentCache();
+      setStatus('持久缓存已清除');
+    };
+    updateCacheLabel();
   }
 
   function hook() {
@@ -1123,6 +1259,7 @@ function wrapper(plugin_info) {
   }
 
   PLUGIN.setup = function () {
+    pruneExpired();
     ensureLayers();
     buildPanel();
     hook();

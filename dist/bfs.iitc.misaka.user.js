@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.191738
+// @version        2026.11.11.192619
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -440,7 +440,9 @@ function wrapper(plugin_info) {
   var TILE_CHUNK = 5;
   var TILE_CONCURRENCY = 4;
   var TILE_RETRIES = 2;
-  var RADIUS_STEPS_KM = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20];
+  var RADIUS_STEPS_KM = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500, 600, 800, 1000];
+  var MAX_RADIUS_KM = 1000;
+  var MAX_TILES_PER_STEP = 5000;
   var BOUNDARY_MARGIN_M = 150;
   var CACHE_PREFIX = 'bfs.iitc.misaka.cache.v1.';
   var DETAILS_PREFIX = 'bfs.iitc.misaka.details.v1.';
@@ -1101,6 +1103,7 @@ function wrapper(plugin_info) {
     var steps = RADIUS_STEPS_KM.filter(function (r) { return r <= maxKm; });
     if (!steps.length || steps[steps.length - 1] < maxKm) steps.push(maxKm);
     var idx = 0;
+    var lastRadius = 0;
     var fetchStats = { retried: 0, failed: [] };
 
     function mergeStats(a, b) {
@@ -1115,7 +1118,7 @@ function wrapper(plugin_info) {
       return r;
     }
 
-    function finish(stopKm, fetchKm, found) {
+    function finish(stopKm, fetchKm, found, extraWarnings) {
       var pack = allPortals();
       var portals = pack.portals;
       var res = analyzeWith(portals, center, me);
@@ -1129,6 +1132,7 @@ function wrapper(plugin_info) {
       }
       var unreachable = res.nearest.filter(function (r) { return r.hops < 0; }).length;
       if (unreachable) v.warnings.push(unreachable + ' 个最近 L8 不可达，可能受加载边界影响');
+      if (extraWarnings) v.warnings = v.warnings.concat(extraWarnings);
       v.ok = v.warnings.length === 0;
       PLUGIN.lastValidation = v;
 
@@ -1156,6 +1160,7 @@ function wrapper(plugin_info) {
     function fetchRadius(radiusKm, cb) {
       var ids = tilesForDisc(center.lat, center.lng, radiusKm * 1000);
       if (!ids || !window.postAjax) { cb(); return; }
+      if (ids.length > MAX_TILES_PER_STEP) { cb({ tooMany: ids.length }); return; }
       setStatus('拉取数据：半径 ' + radiusKm + ' km …');
       fetchTiles(ids, function (done, total) {
         if (total) setStatus('拉取数据：半径 ' + radiusKm + ' km，' + done + '/' + total + ' 个瓦片 …');
@@ -1168,7 +1173,17 @@ function wrapper(plugin_info) {
 
     function attempt() {
       var radiusKm = Math.min(steps[idx], maxKm);
-      fetchRadius(radiusKm, function () {
+      fetchRadius(radiusKm, function (info) {
+        if (info && info.tooMany) {
+          var packLimit = allPortals();
+          var foundLimit = countQualifying(packLimit.portals, center, maxKm * 1000, state.titleFilter);
+          var stopAt = lastRadius || 1;
+          setStatus('半径 ' + radiusKm + ' km 需要 ' + info.tooMany + ' 个瓦片，超过单步上限 ' + MAX_TILES_PER_STEP + '，已停止扩张');
+          finish(stopAt, stopAt, foundLimit, ['半径 ' + radiusKm + ' km 需要 ' + info.tooMany +
+            ' 个瓦片，超过单步上限 ' + MAX_TILES_PER_STEP + '，搜索停在 ' + stopAt + ' km']);
+          return;
+        }
+        lastRadius = radiusKm;
         var pack = allPortals();
         var found = countQualifying(pack.portals, center, maxKm * 1000, state.titleFilter);
         if (found < state.count && radiusKm < maxKm && idx < steps.length - 1) {
@@ -1335,7 +1350,7 @@ function wrapper(plugin_info) {
       '<div id="drone-l8-sel" class="drone-l8-center"></div>' +
       '<div class="drone-l8-row">' +
       '  <label>数量 <input id="drone-l8-count" type="number" min="1" max="50" value="5"></label>' +
-      '  <label>距离 ≤ <input id="drone-l8-maxkm" type="number" min="1" max="20" value="6"> km</label>' +
+      '  <label>距离 ≤ <input id="drone-l8-maxkm" type="number" min="1" max="1000" value="6"> km</label>' +
       '</div>' +
       '<div class="drone-l8-row">' +
       '  <label>推荐 <input id="drone-l8-suggest" type="number" min="0" max="10" value="3"></label>' +
@@ -1385,7 +1400,7 @@ function wrapper(plugin_info) {
 
     $('drone-l8-run').onclick = function () {
       state.count = Math.max(1, Math.min(50, parseInt($('drone-l8-count').value, 10) || 5));
-      state.maxKm = Math.max(1, Math.min(20, parseInt($('drone-l8-maxkm').value, 10) || 6));
+      state.maxKm = Math.max(1, Math.min(MAX_RADIUS_KM, parseInt($('drone-l8-maxkm').value, 10) || 6));
       state.suggest = Math.max(0, Math.min(10, parseInt($('drone-l8-suggest').value, 10) || 0));
       state.titleFilter = ($('drone-l8-filter').value || '').trim();
       var guid = state.selectedGuid || window.selectedPortal || state.centerGuid;

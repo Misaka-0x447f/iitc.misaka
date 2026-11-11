@@ -7,3 +7,6 @@
   只存解析后的 portal 数组（紧凑数组格式），面板显示体积、提供清除按钮；
   超配额时按最旧优先淘汰。不复用 IITC 的 `mapDataRequest.cache`，也不经过 IITC 的渲染缓存。
 - 换中心/换区域只补拉缺失瓦片；刷新页面后仍可从 localStorage 命中。
+
+- mod 标签：分析完成后对展示的 L8 异步请求 `getPortalDetails`（最多 30 个、3 并发），
+  命中 `Ito En Transmuter (-)` / `(+)` 显示标签；details 持久缓存 7 天，与 tile 缓存一起计入体积与清除。

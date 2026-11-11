@@ -36,7 +36,8 @@ https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc
 3. 结果（点击任意结果行可跳转到对应 portal，有路线时同时画线；跳转不会清空结果）：
    - **离中心最近的 L8**：直线距离 + 可达/跳数；
    - **可达 L8（按跳数）**：跳数 = 小时数；
-   - **不可达的最近 L8：替代起点**：每个目标给“离你最近”和“效率最高”各 3 个起点。
+   - **不可达的最近 L8：替代起点**：每个目标给“离你最近”的 3 个起点。
+   - 结果里的 L8 会异步拉取 portal details，带 `Ito En Transmuter (-)` 的显示 `ITO EN (-)` 标签（details 缓存 7 天）。
 4. “我在地图中心”：把当前地图中心设为你本人位置（默认用中心 portal）。
 
 ## 数据与运行时校验

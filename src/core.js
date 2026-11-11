@@ -242,14 +242,10 @@
         };
       }
       var nearest = cands.slice().sort(function (a, b) { return a.walk - b.walk; }).slice(0, 3).map(mk);
-      var fastest = cands.slice().sort(function (a, b) {
-        return a.hops - b.hops || a.walk - b.walk;
-      }).slice(0, 3).map(mk);
       return {
         target: t,
         distFromCenter: hav(cLat, cLng, portals[t].lat, portals[t].lng),
-        nearestStarts: nearest,
-        fastestStarts: fastest
+        nearestStarts: nearest
       };
     });
 

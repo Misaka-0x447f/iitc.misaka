@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.173658
+// @version        2026.11.11.180135
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -390,14 +390,10 @@ function wrapper(plugin_info) {
         };
       }
       var nearest = cands.slice().sort(function (a, b) { return a.walk - b.walk; }).slice(0, 3).map(mk);
-      var fastest = cands.slice().sort(function (a, b) {
-        return a.hops - b.hops || a.walk - b.walk;
-      }).slice(0, 3).map(mk);
       return {
         target: t,
         distFromCenter: hav(cLat, cLng, portals[t].lat, portals[t].lng),
-        nearestStarts: nearest,
-        fastestStarts: fastest
+        nearestStarts: nearest
       };
     });
 
@@ -447,6 +443,7 @@ function wrapper(plugin_info) {
   var RADIUS_STEPS_KM = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20];
   var BOUNDARY_MARGIN_M = 150;
   var CACHE_PREFIX = 'bfs.iitc.misaka.cache.v1.';
+  var DETAILS_PREFIX = 'bfs.iitc.misaka.details.v1.';
   var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   var storageOk = (function () {
     try {
@@ -687,7 +684,7 @@ function wrapper(plugin_info) {
     try {
       for (var i = 0; i < localStorage.length; i++) {
         var k = localStorage.key(i);
-        if (k && k.indexOf(CACHE_PREFIX) === 0) out.push(k);
+        if (k && (k.indexOf(CACHE_PREFIX) === 0 || k.indexOf(DETAILS_PREFIX) === 0)) out.push(k);
       }
     } catch (e) {}
     return out;
@@ -791,6 +788,143 @@ function wrapper(plugin_info) {
     tileCache = Object.create(null);
     tileCount = 0;
     updateCacheLabel(true);
+  }
+
+  var detailsMemory = Object.create(null);
+  var detailsInflight = Object.create(null);
+  var DETAILS_LIMIT = 30;
+
+  function parseDetailsMods(arr) {
+    if (!Array.isArray(arr)) return [];
+    var mods = arr[14];
+    if (!Array.isArray(mods)) return [];
+    var out = [];
+    for (var i = 0; i < mods.length; i++) {
+      var m = mods[i];
+      if (!m) continue;
+      out.push({ owner: m[0], name: m[1] || '', rarity: m[2], stats: m[3] || {} });
+    }
+    return out;
+  }
+
+  function loadDetails(guid) {
+    if (guid in detailsMemory) return detailsMemory[guid];
+    if (storageOk) {
+      try {
+        var raw = localStorage.getItem(DETAILS_PREFIX + guid);
+        if (raw) {
+          var o = JSON.parse(raw);
+          if (o && o.t && Date.now() - o.t <= CACHE_TTL_MS) {
+            detailsMemory[guid] = o.mods || [];
+            return detailsMemory[guid];
+          }
+          localStorage.removeItem(DETAILS_PREFIX + guid);
+        }
+      } catch (e) {
+        try { localStorage.removeItem(DETAILS_PREFIX + guid); } catch (e2) {}
+      }
+    }
+    var p = window.portals && window.portals[guid];
+    var d = p && p.options && p.options.data;
+    if (d && Array.isArray(d.mods)) {
+      var mods = [];
+      for (var j = 0; j < d.mods.length; j++) {
+        var m = d.mods[j];
+        if (m && m.name) mods.push({ name: m.name, stats: m.stats || {} });
+      }
+      if (mods.length) { detailsMemory[guid] = mods; return mods; }
+    }
+    return null;
+  }
+
+  function saveDetails(guid, mods) {
+    detailsMemory[guid] = mods;
+    if (!storageOk) return;
+    try {
+      localStorage.setItem(DETAILS_PREFIX + guid, JSON.stringify({ t: Date.now(), mods: mods }));
+    } catch (e) {}
+  }
+
+  function fetchDetails(guid) {
+    return new Promise(function (resolve) {
+      window.postAjax('getPortalDetails', { guid: guid }, function (data) {
+        var mods = parseDetailsMods(data && data.result);
+        saveDetails(guid, mods);
+        resolve(mods);
+      }, function () { resolve(null); });
+    });
+  }
+
+  function modBadgeText(mods) {
+    if (!mods) return '';
+    for (var i = 0; i < mods.length; i++) {
+      var m = mods[i];
+      if (!m || !m.name) continue;
+      if (m.name.indexOf('Ito En Transmuter') === 0) {
+        var spin = (m.stats || {}).XM_SPIN;
+        if (spin === '-1') return 'ITO EN (-)';
+        if (spin === '1' || spin === '+1') return 'ITO EN (+)';
+        return 'ITO EN';
+      }
+    }
+    return '';
+  }
+
+  function setModBadge(guid, text) {
+    var nodes = document.querySelectorAll('[data-mod-guid="' + guid + '"]');
+    for (var i = 0; i < nodes.length; i++) {
+      nodes[i].textContent = text || '';
+      nodes[i].className = 'drone-l8-mod' + (text ? ' on' : '');
+    }
+  }
+
+  function modSpan(guid) {
+    var s = document.createElement('span');
+    s.className = 'drone-l8-mod';
+    s.setAttribute('data-mod-guid', guid);
+    return s;
+  }
+
+  function refreshMods(res) {
+    var seen = Object.create(null);
+    var guids = [];
+    function add(idx) {
+      var p = res.portals[idx];
+      if (!p || !p.guid || seen[p.guid]) return;
+      seen[p.guid] = 1;
+      guids.push(p.guid);
+    }
+    res.nearest.forEach(function (r) { add(r.idx); });
+    res.reachable.forEach(function (r) { add(r.idx); });
+    res.suggestions.forEach(function (s) { add(s.target); });
+    guids = guids.slice(0, DETAILS_LIMIT);
+
+    var pending = [];
+    for (var i = 0; i < guids.length; i++) {
+      var g = guids[i];
+      var mods = loadDetails(g);
+      if (mods === null) pending.push(g);
+      else setModBadge(g, modBadgeText(mods));
+    }
+
+    var active = 0;
+    function pump() {
+      while (active < 3 && pending.length) {
+        var guid = pending.shift();
+        if (detailsInflight[guid]) continue;
+        detailsInflight[guid] = true;
+        active++;
+        (function (g) {
+          fetchDetails(g).then(function (mods) {
+            delete detailsInflight[g];
+            active--;
+            if (mods) setModBadge(g, modBadgeText(mods));
+            pump();
+          });
+        })(guid);
+      }
+    }
+    pump();
   }
 
   function centerInfo() {
@@ -1092,6 +1226,7 @@ function wrapper(plugin_info) {
       tr.title = '点击跳转到该 portal';
       var name = document.createElement('td');
       name.textContent = r.title + (flags[r.idx] ? ' ⚠贴边' : '');
+      name.appendChild(modSpan(res.portals[r.idx].guid));
       tr.appendChild(name);
       var team = document.createElement('td');
       team.appendChild(teamSpan(r.team));
@@ -1117,6 +1252,7 @@ function wrapper(plugin_info) {
         tr.className = 'drone-l8-clickable';
         var n1 = document.createElement('td');
         n1.textContent = q.title + (flags[r.idx] ? ' ⚠贴边' : '');
+        n1.appendChild(modSpan(q.guid));
         tr.appendChild(n1);
         tr.appendChild(td(r.hops + ' 跳', 'drone-l8-num'));
         tr.onclick = function () { jumpTo(res.portals, r.idx, r.path, '#ffd400'); };
@@ -1139,6 +1275,7 @@ function wrapper(plugin_info) {
         var t = document.createElement('div');
         t.className = 'drone-l8-target drone-l8-clickable';
         t.textContent = '目标 ' + target.title + '（离中心 ' + Math.round(s.distFromCenter) + ' m）';
+        t.appendChild(modSpan(target.guid));
         t.onclick = function () { jumpTo(res.portals, s.target, null, '#f80'); };
         wrap.appendChild(t);
 
@@ -1148,23 +1285,23 @@ function wrapper(plugin_info) {
           none.textContent = '没有任何 portal 能飞到它（加载范围内无链路）';
           wrap.appendChild(none);
         }
-        [['离你最近', s.nearestStarts], ['效率最高', s.fastestStarts]].forEach(function (pair) {
-          pair[1].forEach(function (st, k) {
-            var p = res.portals[st.idx];
-            var line = document.createElement('div');
-            line.className = 'drone-l8-start drone-l8-clickable';
-            line.textContent = pair[0] + (k === 0 ? '' : ' #' + (k + 1)) + '起点：' + p.title +
-              '（离你 ' + Math.round(st.walk) + ' m，到目标 ' + st.hops + ' 跳）';
-            line.onclick = function () {
-              clearLayers();
-              drawPath(res.portals, st.path, k === 0 ? '#f80' : '#fa0', '起点路线：' + st.hops + ' 跳');
-            };
-            wrap.appendChild(line);
-          });
+        s.nearestStarts.forEach(function (st, k) {
+          var p = res.portals[st.idx];
+          var line = document.createElement('div');
+          line.className = 'drone-l8-start drone-l8-clickable';
+          line.textContent = '离你最近' + (k === 0 ? '' : ' #' + (k + 1)) + '起点：' + p.title +
+            '（离你 ' + Math.round(st.walk) + ' m，到目标 ' + st.hops + ' 跳）';
+          line.onclick = function () {
+            clearLayers();
+            drawPath(res.portals, st.path, k === 0 ? '#f80' : '#fa0', '起点路线：' + st.hops + ' 跳');
+          };
+          wrap.appendChild(line);
         });
         box.appendChild(wrap);
       });
     }
+
+    refreshMods(res);
   }
 
   // ---------- panel ----------
@@ -1224,7 +1361,9 @@ function wrapper(plugin_info) {
       '#drone-l8-panel #drone-l8-status{margin:4px 0;opacity:.85;word-break:break-all}' +
       '#drone-l8-panel #drone-l8-validate{margin:2px 0;font-size:11px}' +
       '#drone-l8-panel .drone-l8-vline{opacity:.75}' +
-      '#drone-l8-panel .drone-l8-warn{color:#fa0;margin-top:1px}';
+      '#drone-l8-panel .drone-l8-warn{color:#fa0;margin-top:1px}' +
+      '#drone-l8-panel .drone-l8-mod{display:none}' +
+      '#drone-l8-panel .drone-l8-mod.on{display:inline-block;font-size:10px;line-height:1;padding:1px 3px;margin-left:4px;border-radius:3px;color:#fff;background:#7a4fd0;vertical-align:middle}';
     document.head.appendChild(style);
 
     $('drone-l8-run').onclick = function () {

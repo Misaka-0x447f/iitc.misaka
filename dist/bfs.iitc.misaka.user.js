@@ -2,7 +2,7 @@
 // @id             bfs.iitc.misaka
 // @name           bfs.iitc.misaka
 // @category       Info
-// @version        2026.11.11.163109
+// @version        2026.11.11.163205
 // @namespace      https://github.com/Misaka-0x447f/iitc.misaka
 // @downloadURL    https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
 // @updateURL      https://raw.githubusercontent.com/Misaka-0x447f/iitc.misaka/master/dist/bfs.iitc.misaka.user.js
@@ -933,8 +933,7 @@ function wrapper(plugin_info) {
     });
   }
 
-  function run(fromUser) {
-    if (!fromUser) { setStatus('需要手动点“分析”才会拉取数据', true); return; }
+  function run() {
     if (busy) { setStatus('正在跑，稍等…', true); return; }
     var center = currentCenter();
     if (!center) { setStatus('先选中一个 portal 作为中心', true); return; }
@@ -1230,13 +1229,13 @@ function wrapper(plugin_info) {
       state.titleFilter = ($('drone-l8-filter').value || '').trim();
       var guid = state.selectedGuid || window.selectedPortal || state.centerGuid;
       if (guid) state.centerGuid = guid;
-      run(true);
+      run();
     };
     $('drone-l8-me').onclick = function () {
       var c = window.map.getCenter();
       state.meLat = c.lat; state.meLng = c.lng;
       setStatus('已把地图中心设为你：' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5));
-      run(true);
+      run();
     };
     $('drone-l8-clear').onclick = function () {
       clearLayers();
